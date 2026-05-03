@@ -677,7 +677,7 @@ def handle(update):
     if text in BUTTONS_MAP:
         mode_key, reply_text = BUTTONS_MAP[text]
         if mode_key in ("skill_mgimo", "skill_coursework") and not can_use_mgimo(user_id, username):
-            send(chat_id, "🔒 Этот скилл доступен только по запросу. Напиши @forge0n для получения доступа.")
+            send(chat_id, "🔒 Этот скилл доступен только по запросу. Напиши @staremenow для получения доступа.")
             return
         # При смене режима сбрасываем модель фото
         if mode_key != "photo":
