@@ -40,19 +40,19 @@ CLAUDE_MODEL_NAMES = {
 
 # Модели для генерации фото
 PHOTO_MODELS = {
-    "gpt2": "img/gpt-image-2",
-    "gpt15": "img/gpt-image-1.5",
-    "nb2": "img/nano-banana-2",
     "nbpro": "img/nano-banana-pro",
+    "gpt2": "img/gpt-image-2",
+    "nb2": "img/nano-banana-2",
+    "gpt15": "img/gpt-image-1.5",
     "seed45": "img/seedream-4.5",
     "seed5": "img/seedream-5.0-lite",
     "grok": "img/grok-imagine",
 }
 PHOTO_MODEL_NAMES = {
-    "gpt2":   "🖼 GPT Image 2.0",
-    "gpt15":  "🖼 GPT Image 1.5",
-    "nb2":    "🍌 Nano Banana 2",
     "nbpro":  "🍌 Nano Banana Pro",
+    "gpt2":   "🖼 GPT Image 2.0",
+    "nb2":    "🍌 Nano Banana 2",
+    "gpt15":  "🖼 GPT Image 1.5",
     "seed45": "🌱 Seedream 4.5",
     "seed5":  "🌱 Seedream 5.0 Lite",
     "grok":   "⚡ Grok Imagine",
@@ -246,8 +246,8 @@ def show_photo_model_menu(chat_id):
         "🖼 *Режим генерации фото*\n\n"
         "Выбери модель для генерации:",
         [
-            ["🖼 GPT Image 2.0", "🖼 GPT Image 1.5"],
-            ["🍌 Nano Banana 2", "🍌 Nano Banana Pro"],
+            ["🍌 Nano Banana Pro", "🖼 GPT Image 2.0"],
+            ["🍌 Nano Banana 2", "🖼 GPT Image 1.5"],
             ["🌱 Seedream 4.5", "🌱 Seedream 5.0 Lite"],
             ["⚡ Grok Imagine"],
         ],
@@ -255,10 +255,10 @@ def show_photo_model_menu(chat_id):
     )
 
 PHOTO_MODEL_BUTTONS = {
-    "🖼 GPT Image 2.0":    "gpt2",
-    "🖼 GPT Image 1.5":    "gpt15",
-    "🍌 Nano Banana 2":    "nb2",
     "🍌 Nano Banana Pro":  "nbpro",
+    "🖼 GPT Image 2.0":    "gpt2",
+    "🍌 Nano Banana 2":    "nb2",
+    "🖼 GPT Image 1.5":    "gpt15",
     "🌱 Seedream 4.5":     "seed45",
     "🌱 Seedream 5.0 Lite":"seed5",
     "⚡ Grok Imagine":     "grok",
