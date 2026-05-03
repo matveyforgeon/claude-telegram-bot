@@ -556,7 +556,7 @@ def handle(update):
         bonus_photo = u.get("referral_bonus_photo", 0)
         bot_info = requests.get(f"{BASE_URL}/getMe").json()
         bot_username = bot_info.get("result", {}).get("username", "")
-        ref_link = f"https://t.me/{bot_username}?start=ref_{chat_id}"
+        ref_link = f"https://t.me/{bot_username}?start=ref{chat_id}"
         send(chat_id,
             f"🔗 *Реферальная программа*\n\n"
             f"За каждого приглашённого друга:\n"
