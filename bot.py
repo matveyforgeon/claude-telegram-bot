@@ -294,8 +294,8 @@ def handle_admin(chat_id, text, user_id, username):
             "/users - список пользователей\n"
             "/ban [id] - забанить\n"
             "/unban [id] - разбанить\n"
-            "/give_sub [id] - выдать подписку\n"
-            "/give_mgimo [id] - доступ к МГИМО",
+            "/givesub [id] - выдать подписку\n"
+            "/givemgimo [id] - доступ к МГИМО",
             markdown=True
         )
     elif cmd == "/users":
@@ -318,12 +318,12 @@ def handle_admin(chat_id, text, user_id, username):
             BANNED_USERS.discard(int(parts[1]))
             send(chat_id, f"✅ {parts[1]} разбанен.")
         except: send(chat_id, "Неверный ID.")
-    elif cmd == "/give_sub" and len(parts) > 1:
+    elif cmd == "/givesub" and len(parts) > 1:
         try:
             get_user(int(parts[1]))["has_sub"] = True
             send(chat_id, f"✅ Подписка выдана {parts[1]}.")
         except: send(chat_id, "Неверный ID.")
-    elif cmd == "/give_mgimo" and len(parts) > 1:
+    elif cmd == "/givemgimo" and len(parts) > 1:
         try:
             MGIMO_ALLOWED.add(int(parts[1]))
             send(chat_id, f"✅ Доступ к МГИМО выдан {parts[1]}.")
@@ -365,7 +365,7 @@ def handle(update):
         except: pass
 
     # Админ команды
-    if text.startswith(("/admin", "/users", "/ban", "/unban", "/give_sub", "/give_mgimo")):
+    if text.startswith(("/admin", "/users", "/ban", "/unban", "/givesub", "/givemgimo")):
         handle_admin(chat_id, text, user_id, username)
         return
 
