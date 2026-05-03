@@ -232,7 +232,7 @@ def handle(update):
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=2048,
             system=get_system(chat_id),
             messages=u["history"]
