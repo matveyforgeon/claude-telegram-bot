@@ -255,27 +255,7 @@ def generate_openai(prompt, model_id, px_size, ref_b64=None):
         print(f"[OPENAI EXCEPTION] {e}")
     return None
 
-def generate_xai(prompt, aspect_ratio="1:1", ref_b64=None):
-    try:
-        payload = {
-            "model": "grok-2-image",
-            "prompt": prompt,
-            "n": 1,
-            "aspect_ratio": aspect_ratio,
-        }
-        r = requests.post("https://api.x.ai/v1/images/generations",
-            headers={"Authorization": f"Bearer {XAI_API_KEY}", "Content-Type": "application/json"},
-            json=payload, timeout=120)
-        data = r.json()
-        if r.status_code == 200:
-            items = data.get("data", [])
-            if items:
-                if items[0].get("url"): return ("url", items[0]["url"])
-                if items[0].get("b64_json"): return ("b64", items[0]["b64_json"])
-        print(f"[XAI ERROR] {r.status_code}: {data}")
-    except Exception as e:
-        print(f"[XAI EXCEPTION] {e}")
-    return None
+
 
 def generate_photo(prompt, model_key, aspect, px_size, ref_b64=None):
     info = PHOTO_MODELS.get(model_key)
