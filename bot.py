@@ -46,21 +46,21 @@ CLAUDE_MODEL_NAMES = {
 # Модели фото и их API
 # api: "google", "openai", "xai"
 PHOTO_MODELS = {
-    "nbpro": {"name": "🍌 Nano Banana Pro", "api": "google", "model": "gemini-3-pro-image-preview", "sizes": True},
-    "nb2":   {"name": "🍌 Nano Banana 2",   "api": "google", "model": "gemini-2.5-flash-image",    "sizes": True},
-    "gpt2":  {"name": "🖼 GPT Image 2.0",   "api": "openai", "model": "gpt-image-2",               "sizes": True},
-    "gpt15": {"name": "🖼 GPT Image 1.5",   "api": "openai", "model": "gpt-image-1.5",             "sizes": True},
-    "grok":  {"name": "⚡ Grok Imagine",    "api": "xai",    "model": "grok-2-image",              "sizes": True},
+    "nbfast": {"name": "🍌 Nano Banana (быстрый)", "api": "google", "model": "gemini-2.5-flash-image", "sizes": True, "style": "fast"},
+    "nbpro":  {"name": "🍌 Nano Banana (качество)", "api": "google", "model": "gemini-2.5-flash-image", "sizes": True, "style": "quality"},
+    "gpt2":   {"name": "🖼 GPT Image 2.0",          "api": "openai", "model": "gpt-image-2",           "sizes": True, "style": None},
+    "gpt15":  {"name": "🖼 GPT Image 1.5",          "api": "openai", "model": "gpt-image-1.5",         "sizes": True, "style": None},
+    "grok":   {"name": "⚡ Grok Imagine",           "api": "xai",    "model": "grok-2-image",          "sizes": True, "style": None},
 }
 
 PHOTO_MODEL_NAMES = {k: v["name"] for k, v in PHOTO_MODELS.items()}
 
 PHOTO_MODEL_BUTTONS = {
-    "🍌 Nano Banana Pro": "nbpro",
-    "🍌 Nano Banana 2":   "nb2",
-    "🖼 GPT Image 2.0":   "gpt2",
-    "🖼 GPT Image 1.5":   "gpt15",
-    "⚡ Grok Imagine":    "grok",
+    "🍌 Nano Banana (быстрый)":  "nbfast",
+    "🍌 Nano Banana (качество)": "nbpro",
+    "🖼 GPT Image 2.0":          "gpt2",
+    "🖼 GPT Image 1.5":          "gpt15",
+    "⚡ Grok Imagine":           "grok",
 }
 
 # Размеры 2K
@@ -268,21 +268,33 @@ def download_photo_b64(file_id):
     return base64.b64encode(r.content).decode()
 
 # ===== ГЕНЕРАЦИЯ ФОТО =====
-def generate_google(prompt, model_id, aspect_ratio, ref_b64=None):
+def enhance_prompt(prompt, style):
+    if style == "fast":
+        return prompt
+    elif style == "quality":
+        return (
+            f"{prompt}. "
+            f"Ultra detailed, photorealistic, high quality, sharp focus, "
+            f"professional photography, 8K resolution, masterpiece, best quality, "
+            f"intricate details, vivid colors, perfect composition"
+        )
+    return prompt
+
+def generate_google(prompt, model_id, aspect_ratio, ref_b64=None, style=None):
     """Генерация через Google Gemini API"""
     try:
+        enhanced = enhance_prompt(prompt, style)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={GOOGLE_API_KEY}"
         parts = []
         if ref_b64:
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": ref_b64}})
-        parts.append({"text": prompt})
+        parts.append({"text": enhanced})
         payload = {
             "contents": [{"parts": parts}],
             "generationConfig": {
                 "responseModalities": ["IMAGE", "TEXT"],
-                "image_config": {
-                    "aspect_ratio": aspect_ratio,
-                    "image_size": "2K"
+                "imageConfig": {
+                    "aspectRatio": aspect_ratio,
                 }
             }
         }
@@ -346,7 +358,6 @@ def generate_xai(prompt, px_size, ref_b64=None):
             "model": "grok-2-image",
             "prompt": prompt,
             "n": 1,
-            "size": px_size,
         }
         r = requests.post("https://api.x.ai/v1/images/generations",
                          headers=headers, json=payload, timeout=120)
@@ -371,7 +382,8 @@ def generate_photo(prompt, photo_model_key, aspect_ratio, px_size, ref_b64=None)
     model_id = model_info["model"]
 
     if api == "google":
-        return generate_google(prompt, model_id, aspect_ratio, ref_b64)
+        style = model_info.get("style")
+        return generate_google(prompt, model_id, aspect_ratio, ref_b64, style)
     elif api == "openai":
         return generate_openai(prompt, model_id, px_size, ref_b64)
     elif api == "xai":
@@ -428,9 +440,13 @@ def do_generate(chat_id, prompt, ref_b64=None):
 def show_photo_model_menu(chat_id):
     send(chat_id,
         "Выбери модель для генерации:\n\n"
-        "Все модели поддерживают размеры 2K и любые соотношения сторон (1:1, 3:4, 9:16, 16:9 и др.)",
+        "🍌 Nano Banana (быстрый) - быстрая генерация, хорошее качество\n"
+        "🍌 Nano Banana (качество) - детальная проработка, лучший результат\n"
+        "🖼 GPT Image 2.0 / 1.5 - от OpenAI\n"
+        "⚡ Grok Imagine - от xAI\n\n"
+        "Все модели поддерживают размеры 2K и соотношения 1:1, 3:4, 9:16, 16:9 и др.",
         [
-            ["🍌 Nano Banana Pro", "🍌 Nano Banana 2"],
+            ["🍌 Nano Banana (быстрый)", "🍌 Nano Banana (качество)"],
             ["🖼 GPT Image 2.0", "🖼 GPT Image 1.5"],
             ["⚡ Grok Imagine"],
             ["⬅️ Назад"],
@@ -607,34 +623,35 @@ def handle(update):
     # Фото в обычном режиме (не photo)
     if photos and u.get("mode") != "photo":
         if not can_msg(chat_id):
-            send(chat_id, "У тебя закончились бесплатные сообщения. Оформи /sub")
+            send(chat_id, "⚠️ У тебя закончились бесплатные сообщения. Оформи /sub")
             return
-        if caption:
-            send_typing(chat_id)
-            try:
-                model_id = CLAUDE_MODELS.get(u.get("model", "sonnet"), CLAUDE_MODELS["sonnet"])
-                best = photos[-1]
-                # Скачиваем фото и передаём как base64 (robots.txt блокирует прямые URL)
-                b64 = download_photo_b64(best["file_id"])
-                if not b64:
-                    send(chat_id, "Не удалось загрузить фото. Попробуй ещё раз.")
-                    return
-                response = client.messages.create(
-                    model=model_id, max_tokens=2048,
-                    system=get_system(chat_id),
-                    messages=[{"role": "user", "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-                        {"type": "text", "text": caption}
-                    ]}]
-                )
-                reply = response.content[0].text
-                u["msg_count"] = u.get("msg_count", 0) + 1
-                save_db()
-                send(chat_id, reply, markdown=True)
-            except Exception as e:
-                send(chat_id, f"Ошибка: {str(e)}")
-        else:
-            send(chat_id, "Фото получено! Напиши подпись с вопросом или задачей.")
+        send_typing(chat_id)
+        try:
+            model_id = CLAUDE_MODELS.get(u.get("model", "sonnet"), CLAUDE_MODELS["sonnet"])
+            best = photos[-1]
+            b64 = download_photo_b64(best["file_id"])
+            if not b64:
+                send(chat_id, "Не удалось загрузить фото. Попробуй ещё раз.")
+                return
+            # В режиме тестов — отвечаем на вопрос с фото кратко
+            if u.get("mode") == "test":
+                prompt_text = caption if caption else "Реши задачу или ответь на вопрос который виден на этом фото. Отвечай максимально кратко и точно."
+            else:
+                prompt_text = caption if caption else "Опиши что на фото."
+            response = client.messages.create(
+                model=model_id, max_tokens=2048,
+                system=get_system(chat_id),
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+                    {"type": "text", "text": prompt_text}
+                ]}]
+            )
+            reply = response.content[0].text
+            u["msg_count"] = u.get("msg_count", 0) + 1
+            save_db()
+            send(chat_id, reply, markdown=True)
+        except Exception as e:
+            send(chat_id, f"Ошибка: {str(e)}")
         return
 
     # Режим работы с текстом
@@ -680,6 +697,24 @@ def handle(update):
         do_generate(chat_id, caption, ref_b64)
         return
 
+def show_skills_menu(chat_id):
+    send(chat_id,
+        "🛠 Специальные навыки:\n\n"
+        "📝 Тесты - кратко и точно (поддерживает фото с вопросом)\n"
+        "🇬🇧 Английский - изучение языка\n"
+        "✏️ Работа с текстом - редактирование\n"
+        "🖼 Фотографии - генерация AI-фото 2K\n"
+        "🎨 GPT Image - промпты для нейросетей\n"
+        "💰 AI Sales - продажи AI-визуалов",
+        [
+            ["📝 Тесты", "🇬🇧 Английский"],
+            ["✏️ Работа с текстом"],
+            ["🖼 Фотографии"],
+            ["🎨 GPT Image промпты"],
+            ["💰 AI Visuals Sales"],
+        ]
+    )
+
     # Режим фото — фото без подписи
     if photos and not caption and u.get("mode") == "photo":
         send(chat_id, "Напиши подпись к фото - это будет промпт!\nПример: Замени фон на закат")
@@ -691,39 +726,45 @@ def handle(update):
         send(chat_id,
             f"Привет, {name}! 👋\n"
             f"Я - твой личный AI-ассистент. Помогу с задачами, текстами, идеями и ответами на любые вопросы.\n\n"
-            f"Режим: Дефолт\n"
-            f"Модель: {model_name}\n\n"
+            f"⚙️ Режим: 🗣 Дефолт\n"
+            f"🧠 Модель: {model_name}\n\n"
+            f"📌 Команды:\n"
             f"/help - список возможностей\n"
-            f"/mode - сменить режим\n"
-            f"/skills - специальные навыки\n"
             f"/lang - язык\n"
             f"/clear - очистить память\n"
             f"/sub - подписка\n"
             f"/ref - реферальная ссылка\n"
             f"/status - мой статус\n\n"
-            f"Пиши, что нужно - разберёмся!"
+            f"💬 Пиши, что нужно - разберёмся!"
         )
         return
 
     if text == "/help":
         send(chat_id,
-            "AI-ассистент\n\n"
-            "Режимы (/mode):\n"
-            "Дефолт - нейтральный ИИ\n"
-            "По делу - строго и кратко\n"
-            "Друг - по-дружески\n\n"
-            "Скиллы (/skills):\n"
-            "Тесты - кратко и точно\n"
-            "Английский - изучение языка\n"
-            "Работа с текстом - редактирование\n"
-            "Фотографии - генерация AI-фото 2K\n"
-            "GPT Image - промпты\n"
-            "AI Sales - продажи\n\n"
-            "Модели Claude (/model):\n"
-            "Sonnet 4.6 - быстрый (по умолчанию)\n"
-            "Opus 4.7 - умнее (только подписка)\n\n"
-            f"Бесплатно: {FREE_MSG_LIMIT} сообщений, {FREE_PHOTO_LIMIT} фото\n"
-            f"За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото"
+            "🤖 AI-ассистент\n\n"
+            "🗣 Режимы (/mode):\n"
+            "🗣 Дефолт - нейтральный ИИ\n"
+            "💼 По делу - строго и кратко\n"
+            "😊 Друг - по-дружески\n\n"
+            "🛠 Скиллы (/skills):\n"
+            "📝 Тесты - кратко и точно\n"
+            "🇬🇧 Английский - изучение языка\n"
+            "✏️ Работа с текстом - редактирование\n"
+            "🖼 Фотографии - генерация AI-фото 2K\n"
+            "🎨 GPT Image - промпты\n"
+            "💰 AI Sales - продажи\n\n"
+            "🧠 Модели Claude (/model):\n"
+            "⚡ Sonnet 4.6 - быстрый (по умолчанию)\n"
+            "🧠 Opus 4.7 - умнее (только подписка)\n\n"
+            f"🎁 Бесплатно: {FREE_MSG_LIMIT} сообщений, {FREE_PHOTO_LIMIT} фото\n"
+            f"🔗 За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото",
+            [
+                ["📝 Тесты", "🇬🇧 Английский"],
+                ["✏️ Работа с текстом"],
+                ["🖼 Фотографии"],
+                ["🎨 GPT Image промпты"],
+                ["💰 AI Visuals Sales"],
+            ]
         )
         return
 
@@ -732,16 +773,7 @@ def handle(update):
         return
 
     if text == "/skills":
-        send(chat_id, "Специальные навыки:",
-            [
-                ["📝 Тесты", "🇬🇧 Английский"],
-                ["✏️ Работа с текстом"],
-                ["🖼 Фотографии"],
-                ["🎨 GPT Image промпты"],
-                ["💰 AI Visuals Sales"],
-                ["🗣 Дефолт"],
-            ]
-        )
+        show_skills_menu(chat_id)
         return
 
     if text == "/model":
@@ -814,23 +846,14 @@ def handle(update):
         )
         return
 
-    # Кнопка Назад — возвращает в меню скиллов
+    # Кнопка Назад — возвращает в меню скиллов (как /help)
     if text == "⬅️ Назад":
         u["mode"] = "default"
         u["history"] = []
         u["photo_model"] = None
         pending_text_mode.pop(chat_id, None)
         save_db()
-        send(chat_id, "Специальные навыки:",
-            [
-                ["📝 Тесты", "🇬🇧 Английский"],
-                ["✏️ Работа с текстом"],
-                ["🖼 Фотографии"],
-                ["🎨 GPT Image промпты"],
-                ["💰 AI Visuals Sales"],
-                ["🗣 Дефолт"],
-            ]
-        )
+        show_skills_menu(chat_id)
         return
 
     # Выбор модели Claude
@@ -887,13 +910,13 @@ def handle(update):
 
     # Кнопки режимов
     BUTTONS_MAP = {
-        "🗣 Дефолт":            ("default",     "Режим: Дефолт."),
-        "💼 По делу":           ("delo",        "Режим: По делу."),
-        "😊 Друг":              ("friend",      "Режим: Друг. Привет родной)"),
-        "📝 Тесты":             ("test",        "Скилл: Тесты. Скидывай вопрос!"),
-        "🇬🇧 Английский":       ("english",     "Скилл: Английский. Скидывай текст или вопрос!"),
-        "🎨 GPT Image промпты": ("skill_gpt",   "Скилл: GPT Image. Скидывай идею!"),
-        "💰 AI Visuals Sales":  ("skill_sales", "Скилл: AI Sales. Чем помочь?"),
+        "🗣 Дефолт":            ("default",     "🗣 Режим: Дефолт."),
+        "💼 По делу":           ("delo",        "💼 Режим: По делу."),
+        "😊 Друг":              ("friend",      "😊 Режим: Друг. Привет родной)"),
+        "📝 Тесты":             ("test",        None),
+        "🇬🇧 Английский":       ("english",     None),
+        "🎨 GPT Image промпты": ("skill_gpt",   None),
+        "💰 AI Visuals Sales":  ("skill_sales", None),
         "✏️ Работа с текстом":  ("text_work",   None),
         "🖼 Фотографии":        ("photo",       None),
     }
@@ -903,7 +926,7 @@ def handle(update):
 
         if mode_key == "photo":
             if not can_photo(chat_id):
-                send(chat_id, f"Закончились бесплатные фото. /sub или /ref")
+                send(chat_id, f"⚠️ Закончились бесплатные фото. /sub или /ref")
                 return
             u["mode"] = "photo"
             u["history"] = []
@@ -912,7 +935,10 @@ def handle(update):
             else:
                 rem = max(0, photo_limit(chat_id) - u.get("photo_count", 0))
                 model_name = PHOTO_MODEL_NAMES.get(u["photo_model"], "")
-                send(chat_id, f"Режим фото. Модель: {model_name}\nОсталось фото: {rem}\n\nСкидывай промпт или фото с подписью!")
+                send(chat_id,
+                    f"🖼 Режим фото. Модель: {model_name}\nОсталось фото: {rem}\n\nСкидывай промпт или фото с подписью!",
+                    [["⬅️ Назад"]]
+                )
             save_db()
             return
 
@@ -921,13 +947,59 @@ def handle(update):
             u["history"] = []
             pending_text_mode.pop(chat_id, None)
             save_db()
-            send(chat_id, "Работа с текстом. Выбери действие:",
+            send(chat_id, "✏️ Работа с текстом. Выбери действие:",
                 [
                     ["🔄 Перефразировка", "✂️ Сокращение"],
                     ["📝 Удлинение", "📋 По пунктам"],
                     ["🤖 Проверка на ИИ"],
                     ["⬅️ Назад"],
                 ]
+            )
+            return
+
+        if mode_key == "test":
+            u["mode"] = "test"
+            u["history"] = []
+            save_db()
+            send(chat_id,
+                "📝 Режим Тесты\n\n"
+                "Скидывай вопрос текстом или просто пришли фото с вопросом - отвечу кратко и точно! 🎯",
+                [["⬅️ Назад"]]
+            )
+            return
+
+        if mode_key == "english":
+            u["mode"] = "english"
+            u["history"] = []
+            save_db()
+            send(chat_id,
+                "🇬🇧 Режим Английский\n\n"
+                "Помогу с переводом, грамматикой, объяснениями и тестами.\n"
+                "Скидывай текст, вопрос или попроси составить тест по теме! ✍️",
+                [["⬅️ Назад"]]
+            )
+            return
+
+        if mode_key == "skill_gpt":
+            u["mode"] = "skill_gpt"
+            u["history"] = []
+            save_db()
+            send(chat_id,
+                "🎨 GPT Image промпты\n\n"
+                "Скидывай идею - превращу в готовый промпт для GPT Image 2.0! 🖼",
+                [["⬅️ Назад"]]
+            )
+            return
+
+        if mode_key == "skill_sales":
+            u["mode"] = "skill_sales"
+            u["history"] = []
+            save_db()
+            send(chat_id,
+                "💰 AI Visuals Sales\n\n"
+                "Помогу найти клиентов, написать оффер, DM или ответить на возражение!\n"
+                "Напиши что нужно 👇",
+                [["⬅️ Назад"]]
             )
             return
 
