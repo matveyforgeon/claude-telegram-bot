@@ -7,11 +7,14 @@ import random
 import base64
 import requests
 import anthropic
+import threading
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-FREETHEAI_KEY = os.environ.get("FREETHEAI_KEY", "")
-DB_FILE = "/data/users_db.json"  # база пользователей
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
+DB_FILE = "/data/users_db.json"
 
 BANNED_USERS = set(
     int(x.strip()) for x in os.environ.get("BANNED_USERS", "").split(",") if x.strip().isdigit()
@@ -22,19 +25,15 @@ ADMIN_IDS = set(
 )
 
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-FREETHEAI_URL = "https://api.freetheai.xyz/v1/images/generations"
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# Лимиты
 FREE_MSG_LIMIT = 20
 FREE_PHOTO_LIMIT = 5
 REFERRAL_BONUS_MSG = 15
 REFERRAL_BONUS_PHOTO = 5
 
-# Режимы которые сбрасываются в default при вводе команды
 SKILL_MODES = {"photo", "skill_gpt", "skill_sales", "test", "english", "text_work"}
 
-# Модели Claude
 CLAUDE_MODELS = {
     "sonnet": "claude-sonnet-4-6",
     "opus": "claude-opus-4-7",
@@ -44,53 +43,43 @@ CLAUDE_MODEL_NAMES = {
     "opus": "🧠 Opus 4.7",
 }
 
-# Модели фото
+# Модели фото и их API
+# api: "google", "openai", "xai"
 PHOTO_MODELS = {
-    "nbpro":  "img/nano-banana-pro",
-    "gpt2":   "img/gpt-image-2",
-    "nb2":    "img/nano-banana-2",
-    "gpt15":  "img/gpt-image-1.5",
-    "seed45": "img/seedream-4.5",
-    "seed5":  "img/seedream-5.0-lite",
-    "grok":   "img/grok-imagine",
-}
-PHOTO_MODEL_NAMES = {
-    "nbpro":  "🍌 Nano Banana Pro",
-    "gpt2":   "🖼 GPT Image 2.0",
-    "nb2":    "🍌 Nano Banana 2",
-    "gpt15":  "🖼 GPT Image 1.5",
-    "seed45": "🌱 Seedream 4.5",
-    "seed5":  "🌱 Seedream 5.0 Lite",
-    "grok":   "⚡ Grok Imagine",
-}
-PHOTO_MODEL_BUTTONS = {
-    "🍌 Nano Banana Pro":   "nbpro",
-    "🖼 GPT Image 2.0":     "gpt2",
-    "🍌 Nano Banana 2":     "nb2",
-    "🖼 GPT Image 1.5":     "gpt15",
-    "🌱 Seedream 4.5":      "seed45",
-    "🌱 Seedream 5.0 Lite": "seed5",
-    "⚡ Grok Imagine":      "grok",
+    "nbpro": {"name": "🍌 Nano Banana Pro", "api": "google", "model": "gemini-3-pro-image-preview", "sizes": True},
+    "nb2":   {"name": "🍌 Nano Banana 2",   "api": "google", "model": "gemini-2.5-flash-image",    "sizes": True},
+    "gpt2":  {"name": "🖼 GPT Image 2.0",   "api": "openai", "model": "gpt-image-2",               "sizes": True},
+    "gpt15": {"name": "🖼 GPT Image 1.5",   "api": "openai", "model": "gpt-image-1.5",             "sizes": True},
+    "grok":  {"name": "⚡ Grok Imagine",    "api": "xai",    "model": "grok-2-image",              "sizes": True},
 }
 
-# Соотношения сторон
+PHOTO_MODEL_NAMES = {k: v["name"] for k, v in PHOTO_MODELS.items()}
+
+PHOTO_MODEL_BUTTONS = {
+    "🍌 Nano Banana Pro": "nbpro",
+    "🍌 Nano Banana 2":   "nb2",
+    "🖼 GPT Image 2.0":   "gpt2",
+    "🖼 GPT Image 1.5":   "gpt15",
+    "⚡ Grok Imagine":    "grok",
+}
+
+# Размеры 2K
 SIZE_MAP = {
-    "1:1":  ("1024x1024", "square 1:1 aspect ratio"),
-    "3:4":  ("1024x1536", "portrait 3:4 aspect ratio, vertical orientation"),
-    "4:3":  ("1536x1024", "landscape 4:3 aspect ratio, horizontal orientation"),
-    "9:16": ("1024x1536", "portrait 9:16 aspect ratio, vertical phone wallpaper"),
-    "16:9": ("1536x1024", "landscape 16:9 aspect ratio, widescreen"),
-    "2:3":  ("1024x1536", "portrait 2:3 aspect ratio, vertical"),
-    "3:2":  ("1536x1024", "landscape 3:2 aspect ratio, horizontal"),
-    "1:2":  ("1024x1536", "tall portrait 1:2 aspect ratio, vertical"),
-    "2:1":  ("1536x1024", "wide landscape 2:1 aspect ratio, horizontal"),
+    "1:1":  ("1:1",   "2048x2048", "square 1:1 aspect ratio"),
+    "3:4":  ("3:4",   "1536x2048", "portrait 3:4 aspect ratio, vertical orientation"),
+    "4:3":  ("4:3",   "2048x1536", "landscape 4:3 aspect ratio, horizontal orientation"),
+    "9:16": ("9:16",  "1152x2048", "portrait 9:16 aspect ratio, vertical phone wallpaper"),
+    "16:9": ("16:9",  "2048x1152", "landscape 16:9 aspect ratio, widescreen"),
+    "2:3":  ("2:3",   "1365x2048", "portrait 2:3 aspect ratio, vertical"),
+    "3:2":  ("3:2",   "2048x1365", "landscape 3:2 aspect ratio, horizontal"),
+    "4:5":  ("4:5",   "1638x2048", "portrait 4:5 aspect ratio"),
+    "21:9": ("21:9",  "2048x878",  "ultrawide 21:9 aspect ratio, cinematic"),
 }
 
 def fix_dashes(text):
     return text.replace(" -- ", " - ").replace("--", "-").replace(" — ", " - ").replace("—", "-")
 
 def extract_size(prompt):
-    """Ищет размер в промпте, возвращает (api_size, hint, промпт без упоминания размера)"""
     patterns = [
         r'разрешение\s+(\d+:\d+)',
         r'размер\s+фото\s+(\d+:\d+)',
@@ -105,12 +94,13 @@ def extract_size(prompt):
         if m:
             ratio = m.group(1)
             if ratio in SIZE_MAP:
-                api_size, hint = SIZE_MAP[ratio]
+                aspect, px_size, hint = SIZE_MAP[ratio]
                 clean = re.sub(pat, '', prompt, flags=re.IGNORECASE).strip()
                 clean = re.sub(r'\s+', ' ', clean)
-                return api_size, hint, clean
-    return "1024x1024", None, prompt
-# ===== БАЗА ПОЛЬЗОВАТЕЛЕЙ =====
+                return aspect, px_size, hint, clean
+    return "1:1", "2048x2048", None, prompt
+
+# ===== БАЗА =====
 def load_db():
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
@@ -124,7 +114,7 @@ def save_db():
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump({str(k): v for k, v in user_data.items()}, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"[DB] Ошибка сохранения: {e}")
+        print(f"[DB] Ошибка: {e}")
 
 user_data = load_db()
 pending_clear = set()
@@ -133,20 +123,12 @@ pending_text_mode = {}
 def get_user(uid):
     if uid not in user_data:
         user_data[uid] = {
-            "mode": "default",
-            "language": "ru",
-            "history": [],
-            "model": "sonnet",
-            "photo_model": None,
-            "username": "",
-            "name": "",
-            "msg_count": 0,
-            "photo_count": 0,
-            "has_sub": False,
-            "referral_bonus_msg": 0,
-            "referral_bonus_photo": 0,
-            "referred_by": None,
-            "referrals": [],
+            "mode": "default", "language": "ru", "history": [],
+            "model": "sonnet", "photo_model": None,
+            "username": "", "name": "",
+            "msg_count": 0, "photo_count": 0, "has_sub": False,
+            "referral_bonus_msg": 0, "referral_bonus_photo": 0,
+            "referred_by": None, "referrals": [],
         }
         save_db()
     return user_data[uid]
@@ -169,29 +151,25 @@ def photo_limit(uid):
     if u["has_sub"]: return 999999
     return FREE_PHOTO_LIMIT + u.get("referral_bonus_photo", 0)
 
-def can_msg(uid):
-    return get_user(uid)["msg_count"] < msg_limit(uid)
-
-def can_photo(uid):
-    return get_user(uid)["photo_count"] < photo_limit(uid)
+def can_msg(uid): return get_user(uid)["msg_count"] < msg_limit(uid)
+def can_photo(uid): return get_user(uid)["photo_count"] < photo_limit(uid)
 
 # ===== ПРОМПТЫ =====
 SYSTEM_PROMPTS = {
     "default": "Ты - универсальный ИИ-ассистент. Отвечай нейтрально, чётко и по делу. Без лишних эмодзи, без личности и шуток. Обращайся к пользователю на ты. Никогда не используй длинное тире, только обычный дефис.",
     "delo": "Ты - строгий деловой ИИ-ассистент. Отвечай максимально чётко и кратко, только факты и конкретика. Никаких шуток и эмодзи. Обращайся к пользователю на ты. Никогда не используй длинное тире, только обычный дефис.",
-    "friend": "Ты - друг и весёлый ИИ-ассистент с отличным чувством юмора. Немного шути, будь расслабленным - но при этом всё равно помогай по делу. Обращайся к пользователю на ты как к самому близкому человеку. Можешь использовать эмодзи. Никогда не используй длинное тире, только обычный дефис.",
+    "friend": "Ты - друг и весёлый ИИ-ассистент с отличным чувством юмора. Немного шути, будь расслабленным - но при этом всё равно помогай по делу. Обращайся к пользователю на ты. Можешь использовать эмодзи. Никогда не используй длинное тире, только обычный дефис.",
     "test": "Ты - ассистент для решения тестов. Отвечай максимально кратко и точно. Только правильный ответ, без объяснений если не просят. Никогда не используй длинное тире, только обычный дефис.",
     "english": """Ты - персональный преподаватель английского языка. Помогаешь с:
 - Переводом текстов и предложений (с объяснением нюансов)
 - Грамматикой (объяснения на русском, примеры на английском)
 - Тестами и упражнениями по запросу
-- Разбором ошибок
-- Пополнением словарного запаса
+- Разбором ошибок и пополнением словарного запаса
 Стиль: дружелюбный, терпеливый. Обращайся на ты.
-Если пользователь пишет по-английски - исправляй ошибки мягко и объясняй почему.
-Если просит тест - составь 5 вопросов по нужной теме.
+Если пользователь пишет по-английски - исправляй ошибки мягко.
+Если просит тест - составь 5 вопросов по теме.
 Никогда не используй длинное тире, только обычный дефис.""",
-    "text_work": "Ты - профессиональный редактор текстов. Жди текст от пользователя и выполняй задачу: перефразировка, сокращение, удлинение или структурирование по пунктам. Никогда не используй длинное тире, только обычный дефис.",
+    "text_work": "Ты - профессиональный редактор текстов. Выполняй задачу пользователя: перефразировка, сокращение, удлинение или структурирование по пунктам. Никогда не используй длинное тире, только обычный дефис.",
     "skill_gpt": """You are a prompt director for GPT Image 2.0. Convert user concepts into production-ready prompts.
 Three formats:
 - Format A (JSON): for layouts, UI, infographics, posters with panels, character sheets
@@ -203,17 +181,9 @@ Never use em-dashes, only regular hyphens.""",
     "skill_sales": """Ты - Sales Coach по продажам AI-визуалов.
 Прайс: 1 фото $15, 10 фото $140, 20 фото $260, 1 видео $80, 5 видео $350, 10 видео $650.
 Ниши: одежда, рестораны, недвижимость, блогеры, агентства.
-Задачи:
-- "найди клиентов" - ищи реальные аккаунты, выдавай таблицу с оценкой потенциала
-- "напиши оффер" - готовый текст под нишу
-- "напиши DM" - скрипт для директа
-- возражение - готовый ответ
-Возражения:
-"Дорого" - У нас 10 фото = $140, в 3-5 раз дешевле студии. Начнём с бесплатного теста?
-"Уже есть фотограф" - AI - дополнение, не замена. Больше контента за меньший бюджет.
-"Подумаю" - Сделаю 1 тестовый визуал бесплатно прямо сейчас. Попробуем?
-Никогда не используй длинное тире, только обычный дефис.
-Всегда давай готовые тексты, не абстрактные советы.""",
+Задачи: найди клиентов, напиши оффер, напиши DM, ответь на возражение.
+Возражения: "Дорого" - 10 фото = $140, в 3-5 раз дешевле студии. "Подумаю" - сделаю 1 тест бесплатно.
+Никогда не используй длинное тире. Всегда давай готовые тексты.""",
 }
 
 TEXT_SUBMODES = {
@@ -250,17 +220,13 @@ def ai_check_result():
 
 def get_system(uid):
     u = get_user(uid)
-    mode = u["mode"]
-    if mode not in SYSTEM_PROMPTS:
-        mode = "default"
+    mode = u["mode"] if u["mode"] in SYSTEM_PROMPTS else "default"
     base = SYSTEM_PROMPTS[mode]
-    if u["language"] == "ru":
-        base += "\nОтвечай только на русском языке."
-    elif u["language"] == "en":
-        base += "\nAlways respond in English only."
+    if u["language"] == "ru": base += "\nОтвечай только на русском языке."
+    elif u["language"] == "en": base += "\nAlways respond in English only."
     return base
 
-# ===== TELEGRAM HELPERS =====
+# ===== TELEGRAM =====
 def send_typing(chat_id):
     requests.post(f"{BASE_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
 
@@ -269,14 +235,20 @@ def send(chat_id, text, keyboard=None, markdown=False):
     chunks = [text[i:i+4096] for i in range(0, len(text), 4096)]
     for i, chunk in enumerate(chunks):
         payload = {"chat_id": chat_id, "text": chunk}
-        if markdown:
-            payload["parse_mode"] = "Markdown"
+        if markdown: payload["parse_mode"] = "Markdown"
         if i == 0 and keyboard:
             payload["reply_markup"] = {"keyboard": keyboard, "one_time_keyboard": True, "resize_keyboard": True}
         r = requests.post(f"{BASE_URL}/sendMessage", json=payload)
         if markdown and r.status_code != 200:
             payload.pop("parse_mode", None)
             requests.post(f"{BASE_URL}/sendMessage", json=payload)
+
+def send_photo_bytes(chat_id, img_bytes, caption=""):
+    requests.post(
+        f"{BASE_URL}/sendPhoto",
+        data={"chat_id": chat_id, "caption": fix_dashes(caption)},
+        files={"photo": ("image.png", img_bytes)}
+    )
 
 def send_photo_url(chat_id, url, caption=""):
     r = requests.post(f"{BASE_URL}/sendPhoto", json={
@@ -296,86 +268,161 @@ def download_photo_b64(file_id):
     return base64.b64encode(r.content).decode()
 
 # ===== ГЕНЕРАЦИЯ ФОТО =====
-def generate_photo(prompt, ref_b64=None, photo_model_key="gpt2", size="1024x1024"):
-    model_id = PHOTO_MODELS.get(photo_model_key, PHOTO_MODELS["gpt2"])
-    # Добавляем размер в промпт напрямую для надёжности
-    payload = {
-        "model": model_id,
-        "prompt": prompt,
-        "n": 1,
-        "size": size,
-        "width": int(size.split("x")[0]),
-        "height": int(size.split("x")[1]),
-    }
-    if ref_b64:
-        payload["image"] = f"data:image/jpeg;base64,{ref_b64}"
+def generate_google(prompt, model_id, aspect_ratio, ref_b64=None):
+    """Генерация через Google Gemini API"""
     try:
-        r = requests.post(
-            FREETHEAI_URL,
-            headers={"Authorization": f"Bearer {FREETHEAI_KEY}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=120
-        )
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={GOOGLE_API_KEY}"
+        parts = []
+        if ref_b64:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": ref_b64}})
+        parts.append({"text": prompt})
+        payload = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {
+                "responseModalities": ["IMAGE", "TEXT"],
+                "image_config": {
+                    "aspect_ratio": aspect_ratio,
+                    "image_size": "2K"
+                }
+            }
+        }
+        r = requests.post(url, json=payload, timeout=120)
+        data = r.json()
+        if r.status_code == 200:
+            candidates = data.get("candidates", [])
+            for candidate in candidates:
+                for part in candidate.get("content", {}).get("parts", []):
+                    if "inlineData" in part:
+                        return ("b64", part["inlineData"]["data"])
+                    if "fileData" in part:
+                        return ("url", part["fileData"]["fileUri"])
+        print(f"[GOOGLE ERROR] {r.status_code}: {data}")
+    except Exception as e:
+        print(f"[GOOGLE EXCEPTION] {e}")
+    return None
+
+def generate_openai(prompt, model_id, px_size, ref_b64=None):
+    """Генерация через OpenAI API"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        # image-to-image если есть референс
+        if ref_b64:
+            img_bytes = base64.b64decode(ref_b64)
+            r = requests.post(
+                "https://api.openai.com/v1/images/edits",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                data={"model": model_id, "prompt": prompt, "size": px_size, "n": 1},
+                files={"image": ("image.png", img_bytes, "image/png")},
+                timeout=120
+            )
+        else:
+            payload = {"model": model_id, "prompt": prompt, "n": 1, "size": px_size}
+            r = requests.post("https://api.openai.com/v1/images/generations",
+                            headers=headers, json=payload, timeout=120)
         data = r.json()
         if r.status_code == 200:
             items = data.get("data", [])
             if items:
-                return items[0].get("url") or items[0].get("b64_json")
-        else:
-            print(f"[PHOTO ERROR] {r.status_code}: {data}")
+                url = items[0].get("url")
+                b64 = items[0].get("b64_json")
+                if url: return ("url", url)
+                if b64: return ("b64", b64)
+        print(f"[OPENAI ERROR] {r.status_code}: {data}")
     except Exception as e:
-        print(f"[PHOTO EXCEPTION] {e}")
+        print(f"[OPENAI EXCEPTION] {e}")
+    return None
+
+def generate_xai(prompt, px_size, ref_b64=None):
+    """Генерация через xAI API"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {XAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "grok-2-image",
+            "prompt": prompt,
+            "n": 1,
+            "size": px_size,
+        }
+        r = requests.post("https://api.x.ai/v1/images/generations",
+                         headers=headers, json=payload, timeout=120)
+        data = r.json()
+        if r.status_code == 200:
+            items = data.get("data", [])
+            if items:
+                url = items[0].get("url")
+                b64 = items[0].get("b64_json")
+                if url: return ("url", url)
+                if b64: return ("b64", b64)
+        print(f"[XAI ERROR] {r.status_code}: {data}")
+    except Exception as e:
+        print(f"[XAI EXCEPTION] {e}")
+    return None
+
+def generate_photo(prompt, photo_model_key, aspect_ratio, px_size, ref_b64=None):
+    model_info = PHOTO_MODELS.get(photo_model_key)
+    if not model_info:
+        return None
+    api = model_info["api"]
+    model_id = model_info["model"]
+
+    if api == "google":
+        return generate_google(prompt, model_id, aspect_ratio, ref_b64)
+    elif api == "openai":
+        return generate_openai(prompt, model_id, px_size, ref_b64)
+    elif api == "xai":
+        return generate_xai(prompt, px_size, ref_b64)
     return None
 
 def send_generated_photo(chat_id, result, remaining):
     if not result:
-        send(chat_id, "❌ Не удалось сгенерировать фото. Попробуй другой промпт или модель.")
+        send(chat_id, "Не удалось сгенерировать фото. Попробуй другой промпт или модель.")
         return
-    caption = f"✅ Готово! Осталось фото: {remaining}"
-    if result.startswith("http"):
-        ok = send_photo_url(chat_id, result, caption)
+    caption = f"Готово! Осталось фото: {remaining}"
+    result_type, result_data = result
+    if result_type == "url":
+        ok = send_photo_url(chat_id, result_data, caption)
         if not ok:
-            send(chat_id, f"✅ Готово! Открой фото: {result}\nОсталось: {remaining}")
-    else:
+            send(chat_id, f"Готово! Открой фото: {result_data}\nОсталось: {remaining}")
+    elif result_type == "b64":
         try:
-            img_bytes = base64.b64decode(result)
-            requests.post(
-                f"{BASE_URL}/sendPhoto",
-                data={"chat_id": chat_id, "caption": caption},
-                files={"photo": ("image.png", img_bytes)}
-            )
+            img_bytes = base64.b64decode(result_data)
+            send_photo_bytes(chat_id, img_bytes, caption)
         except:
             send(chat_id, caption)
 
 def do_generate(chat_id, prompt, ref_b64=None):
     u = get_user(chat_id)
-    size, hint, clean_prompt = extract_size(prompt)
-    # Добавляем подсказку размера прямо в промпт для всех моделей
+    aspect, px_size, hint, clean_prompt = extract_size(prompt)
     final_prompt = clean_prompt or prompt
     if hint:
         final_prompt = f"{final_prompt}, {hint}"
-    model_name = PHOTO_MODEL_NAMES.get(u["photo_model"], "GPT Image 2.0")
-    send(chat_id, f"⏳ Генерирую...\nМодель: {model_name}\nРазмер: {size}")
+    model_key = u["photo_model"]
+    model_name = PHOTO_MODEL_NAMES.get(model_key, "")
+    send(chat_id, f"Генерирую...\nМодель: {model_name}\nРазмер: {px_size} ({aspect})")
     send_typing(chat_id)
-    result = generate_photo(final_prompt, ref_b64, u["photo_model"], size)
+    result = generate_photo(final_prompt, model_key, aspect, px_size, ref_b64)
     if result:
         u["photo_count"] = u.get("photo_count", 0) + 1
         save_db()
         remaining = max(0, photo_limit(chat_id) - u["photo_count"])
         send_generated_photo(chat_id, result, remaining)
     else:
-        send(chat_id, "❌ Не удалось сгенерировать фото. Попробуй другой промпт или модель.")
+        send(chat_id, "Не удалось сгенерировать фото. Попробуй другой промпт или модель.")
 
 def show_photo_model_menu(chat_id):
     send(chat_id,
-        "🖼 *Генерация фото*\n\nВыбери модель:",
+        "Выбери модель для генерации:\n\n"
+        "Все модели поддерживают размеры 2K и любые соотношения сторон (1:1, 3:4, 9:16, 16:9 и др.)",
         [
-            ["🍌 Nano Banana Pro", "🖼 GPT Image 2.0"],
-            ["🍌 Nano Banana 2", "🖼 GPT Image 1.5"],
-            ["🌱 Seedream 4.5", "🌱 Seedream 5.0 Lite"],
+            ["🍌 Nano Banana Pro", "🍌 Nano Banana 2"],
+            ["🖼 GPT Image 2.0", "🖼 GPT Image 1.5"],
             ["⚡ Grok Imagine"],
-        ],
-        markdown=True
+        ]
     )
 
 # ===== КОМАНДЫ =====
@@ -404,7 +451,7 @@ def handle_admin(chat_id, text, user_id, username):
 
     if cmd == "/admin":
         send(chat_id,
-            "👑 Админ-панель\n\n"
+            "Админ-панель\n\n"
             f"Всего пользователей: {len(user_data)}\n\n"
             "Команды:\n"
             "/users - список пользователей\n"
@@ -418,23 +465,49 @@ def handle_admin(chat_id, text, user_id, username):
         if not user_data:
             send(chat_id, "Пользователей нет.")
             return
-        lines = ["👥 *Пользователи (последние 30):*\n"]
+        lines = ["Пользователи (последние 30):\n"]
         for uid, u in list(user_data.items())[-30:]:
             uname = f"@{u.get('username')}" if u.get("username") else "нет @"
             name = u.get("name", "")
-            sub = "✅" if u.get("has_sub") else f"msg:{u.get('msg_count',0)}/{FREE_MSG_LIMIT} photo:{u.get('photo_count',0)}/{FREE_PHOTO_LIMIT}"
-            banned = " 🚫" if uid in BANNED_USERS else ""
-            lines.append(f"`{uid}` {uname} {name}{banned}\n  {sub}")
-        send(chat_id, "\n".join(lines), markdown=True)
+            sub = "ДА" if u.get("has_sub") else "нет"
+            banned = " ЗАБАНЕН" if uid in BANNED_USERS else ""
+            lines.append(f"{uid} {uname} {name}{banned} | sub:{sub} msg:{u.get('msg_count',0)} photo:{u.get('photo_count',0)}")
+        send(chat_id, "\n".join(lines))
+    elif cmd == "/export":
+        try:
+            lines = [f"БАЗА ПОЛЬЗОВАТЕЛЕЙ - {len(user_data)} чел.\n"]
+            lines.append("=" * 40)
+            for i, (uid, u) in enumerate(user_data.items(), 1):
+                uname = f"@{u.get('username')}" if u.get("username") else "-"
+                sub = "ДА" if u.get("has_sub") else "нет"
+                banned = " [ЗАБАНЕН]" if uid in BANNED_USERS else ""
+                refs = len(u.get("referrals", []))
+                lines.append(
+                    f"\n{i}. {u.get('name', '-')} {uname}{banned}\n"
+                    f"   ID: {uid}\n"
+                    f"   Подписка: {sub}\n"
+                    f"   Сообщений: {u.get('msg_count', 0)} / Фото: {u.get('photo_count', 0)}\n"
+                    f"   Рефералов: {refs} | Бонус msg: {u.get('referral_bonus_msg',0)} photo: {u.get('referral_bonus_photo',0)}\n"
+                    f"   Режим: {u.get('mode','default')} | Модель: {u.get('model','sonnet')}"
+                )
+                lines.append("-" * 40)
+            content = "\n".join(lines).encode("utf-8")
+            requests.post(
+                f"{BASE_URL}/sendDocument",
+                data={"chat_id": chat_id, "caption": f"База пользователей - {len(user_data)} чел."},
+                files={"document": ("users.txt", content)}
+            )
+        except Exception as e:
+            send(chat_id, f"Ошибка: {str(e)}")
     elif cmd == "/ban" and len(parts) > 1:
         try:
             BANNED_USERS.add(int(parts[1]))
-            send(chat_id, f"✅ {parts[1]} забанен.")
+            send(chat_id, f"{parts[1]} забанен.")
         except: send(chat_id, "Неверный ID.")
     elif cmd == "/unban" and len(parts) > 1:
         try:
             BANNED_USERS.discard(int(parts[1]))
-            send(chat_id, f"✅ {parts[1]} разбанен.")
+            send(chat_id, f"{parts[1]} разбанен.")
         except: send(chat_id, "Неверный ID.")
     elif cmd == "/givesub" and len(parts) > 1:
         try:
@@ -476,7 +549,7 @@ def handle(update):
 
     is_command = text.startswith("/")
 
-    # При вводе команды — сброс скилл-режима в дефолт
+    # Сброс скилл-режима при команде
     if is_command and u.get("mode") in SKILL_MODES:
         u["mode"] = "default"
         u["history"] = []
@@ -495,13 +568,13 @@ def handle(update):
                 u["referred_by"] = ref_id
                 save_db()
                 send(ref_id,
-                    f"🎉 Друг зарегистрировался по твоей ссылке!\n"
+                    f"Друг зарегистрировался по твоей ссылке!\n"
                     f"+{REFERRAL_BONUS_MSG} сообщений и +{REFERRAL_BONUS_PHOTO} фото начислено."
                 )
         except: pass
 
     # Админ команды
-    if text.startswith(("/admin", "/users", "/ban", "/unban", "/givesub", "/revokesub")):
+    if text.startswith(("/admin", "/users", "/export", "/ban", "/unban", "/givesub", "/revokesub")):
         handle_admin(chat_id, text, user_id, username)
         return
 
@@ -511,7 +584,7 @@ def handle(update):
             pending_clear.discard(chat_id)
             u["history"] = []
             save_db()
-            send(chat_id, "🗑 Память очищена!")
+            send(chat_id, "Память очищена!")
         elif text == "❌ Нет":
             pending_clear.discard(chat_id)
             send(chat_id, "Окей, память осталась нетронутой 👍")
@@ -519,61 +592,53 @@ def handle(update):
             send(chat_id, "Выбери вариант 👇", [["✅ Точно очистить", "❌ Нет"]])
         return
 
-    # Обработка фото присланного в чат (в любом режиме или в режиме фото)
-    if photos and not caption and u.get("mode") != "photo":
-        # Фото без подписи в обычном режиме — спрашиваем что делать
+    # Фото в обычном режиме (не photo)
+    if photos and u.get("mode") != "photo":
         if not can_msg(chat_id):
-            send(chat_id, "⚠️ У тебя закончились бесплатные сообщения. Оформи подписку через /sub")
+            send(chat_id, "У тебя закончились бесплатные сообщения. Оформи /sub")
             return
-        send_typing(chat_id)
-        send(chat_id, "📸 Фото получено! Напиши что с ним сделать — опишу, переведу текст с фото или отвечу на вопрос по нему.")
+        if caption:
+            send_typing(chat_id)
+            try:
+                model_id = CLAUDE_MODELS.get(u.get("model", "sonnet"), CLAUDE_MODELS["sonnet"])
+                best = photos[-1]
+                # Скачиваем фото и передаём как base64 (robots.txt блокирует прямые URL)
+                b64 = download_photo_b64(best["file_id"])
+                if not b64:
+                    send(chat_id, "Не удалось загрузить фото. Попробуй ещё раз.")
+                    return
+                response = client.messages.create(
+                    model=model_id, max_tokens=2048,
+                    system=get_system(chat_id),
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+                        {"type": "text", "text": caption}
+                    ]}]
+                )
+                reply = response.content[0].text
+                u["msg_count"] = u.get("msg_count", 0) + 1
+                save_db()
+                send(chat_id, reply, markdown=True)
+            except Exception as e:
+                send(chat_id, f"Ошибка: {str(e)}")
+        else:
+            send(chat_id, "Фото получено! Напиши подпись с вопросом или задачей.")
         return
 
-    if photos and caption and u.get("mode") != "photo":
-        # Фото с подписью в обычном режиме — отвечаем на вопрос по фото через Claude
-        if not can_msg(chat_id):
-            send(chat_id, "⚠️ У тебя закончились бесплатные сообщения. Оформи подписку через /sub")
-            return
-        send_typing(chat_id)
-        try:
-            model_id = CLAUDE_MODELS.get(u.get("model", "sonnet"), CLAUDE_MODELS["sonnet"])
-            best = photos[-1]
-            file_url = get_file_url(best["file_id"])
-            response = client.messages.create(
-                model=model_id,
-                max_tokens=2048,
-                system=get_system(chat_id),
-                messages=[{"role": "user", "content": [
-                    {"type": "image", "source": {"type": "url", "url": file_url}},
-                    {"type": "text", "text": caption}
-                ]}]
-            )
-            reply = response.content[0].text
-            u["msg_count"] = u.get("msg_count", 0) + 1
-            save_db()
-            send(chat_id, reply, markdown=True)
-        except Exception as e:
-            send(chat_id, f"Ошибка: {str(e)}")
-        return
-
-    # Режим работы с текстом — ждём субрежим
+    # Режим работы с текстом
     if u.get("mode") == "text_work" and chat_id not in pending_text_mode and not is_command:
         if text in TEXT_SUBMODES:
             submode = TEXT_SUBMODES[text]
             pending_text_mode[chat_id] = submode
-            if submode == "ai_check":
-                send(chat_id, "Отправь текст для анализа 👇")
-            else:
-                send(chat_id, "Отправь текст для обработки 👇")
+            send(chat_id, "Отправь текст 👇")
             return
 
-    # Режим работы с текстом — ждём текст
     if chat_id in pending_text_mode and not is_command:
         submode = pending_text_mode.pop(chat_id)
         send_typing(chat_id)
         if submode == "ai_check":
             time.sleep(1)
-            send(chat_id, "⏳ Анализирую текст...\n[████████░░] 80%")
+            send(chat_id, "Анализирую текст...\n[████████░░] 80%")
             time.sleep(1.5)
             send(chat_id, ai_check_result(), markdown=True)
         else:
@@ -590,22 +655,22 @@ def handle(update):
                 send(chat_id, f"Ошибка: {str(e)}")
         return
 
-    # Фото с подписью — генерация (режим photo)
+    # Режим фото — обработка фото с подписью
     if photos and caption and u.get("mode") == "photo":
         if not u.get("photo_model"):
             show_photo_model_menu(chat_id)
             return
         if not can_photo(chat_id):
-            send(chat_id, f"⚠️ Закончились бесплатные фото. Оформи /sub или пригласи друга /ref.")
+            send(chat_id, f"Закончились бесплатные фото. /sub или /ref")
             return
         best = photos[-1]
         ref_b64 = download_photo_b64(best["file_id"])
         do_generate(chat_id, caption, ref_b64)
         return
 
-    # Фото без подписи в режиме photo
+    # Режим фото — фото без подписи
     if photos and not caption and u.get("mode") == "photo":
-        send(chat_id, "📝 Напиши подпись к фото - это будет промпт!\nПример: «Замени фон на закат»")
+        send(chat_id, "Напиши подпись к фото - это будет промпт!\nПример: Замени фон на закат")
         return
 
     # ===== КОМАНДЫ =====
@@ -614,9 +679,8 @@ def handle(update):
         send(chat_id,
             f"Привет, {name}! 👋\n"
             f"Я - твой личный AI-ассистент. Помогу с задачами, текстами, идеями и ответами на любые вопросы.\n\n"
-            f"⚙️ Режим: 🗣 Дефолт\n"
-            f"🧠 Модель: {model_name}\n\n"
-            f"📌 Команды:\n"
+            f"Режим: Дефолт\n"
+            f"Модель: {model_name}\n\n"
             f"/help - список возможностей\n"
             f"/mode - сменить режим\n"
             f"/skills - специальные навыки\n"
@@ -625,42 +689,38 @@ def handle(update):
             f"/sub - подписка\n"
             f"/ref - реферальная ссылка\n"
             f"/status - мой статус\n\n"
-            f"💬 Пиши, что нужно - разберёмся!"
+            f"Пиши, что нужно - разберёмся!"
         )
         return
 
     if text == "/help":
         send(chat_id,
-            "🤖 *AI-ассистент*\n\n"
-            "*Режимы (/mode):*\n"
-            "🗣 Дефолт - нейтральный ИИ\n"
-            "💼 По делу - строго и кратко\n"
-            "😊 Друг - по-дружески\n\n"
-            "*Скиллы (/skills):*\n"
-            "📝 Тесты - кратко и точно\n"
-            "🇬🇧 Английский - изучение языка\n"
-            "✏️ Работа с текстом - редактирование\n"
-            "🖼 Фотографии - генерация AI-фото\n"
-            "🎨 GPT Image - промпты\n"
-            "💰 AI Sales - продажи\n\n"
-            "*Модели Claude (/model):*\n"
-            "⚡ Sonnet 4.6 - быстрый (по умолчанию)\n"
-            "🧠 Opus 4.7 - умнее (только подписка)\n\n"
+            "AI-ассистент\n\n"
+            "Режимы (/mode):\n"
+            "Дефолт - нейтральный ИИ\n"
+            "По делу - строго и кратко\n"
+            "Друг - по-дружески\n\n"
+            "Скиллы (/skills):\n"
+            "Тесты - кратко и точно\n"
+            "Английский - изучение языка\n"
+            "Работа с текстом - редактирование\n"
+            "Фотографии - генерация AI-фото 2K\n"
+            "GPT Image - промпты\n"
+            "AI Sales - продажи\n\n"
+            "Модели Claude (/model):\n"
+            "Sonnet 4.6 - быстрый (по умолчанию)\n"
+            "Opus 4.7 - умнее (только подписка)\n\n"
             f"Бесплатно: {FREE_MSG_LIMIT} сообщений, {FREE_PHOTO_LIMIT} фото\n"
-            f"За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото",
-            markdown=True
+            f"За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото"
         )
         return
 
     if text == "/mode":
-        send(chat_id, "Выбери режим:", [
-            ["🗣 Дефолт", "💼 По делу", "😊 Друг"],
-        ])
+        send(chat_id, "Выбери режим:", [["🗣 Дефолт", "💼 По делу", "😊 Друг"]])
         return
 
     if text == "/skills":
-        send(chat_id,
-            "🛠 *Специальные навыки:*",
+        send(chat_id, "Специальные навыки:",
             [
                 ["📝 Тесты", "🇬🇧 Английский"],
                 ["✏️ Работа с текстом"],
@@ -668,8 +728,7 @@ def handle(update):
                 ["🎨 GPT Image промпты"],
                 ["💰 AI Visuals Sales"],
                 ["🗣 Дефолт"],
-            ],
-            markdown=True
+            ]
         )
         return
 
@@ -689,16 +748,15 @@ def handle(update):
 
     if text == "/sub":
         if u.get("has_sub"):
-            send(chat_id, "✅ У тебя активна подписка! Лимиты сняты.")
+            send(chat_id, "У тебя активна подписка! Лимиты сняты.")
         else:
             rem_msg = max(0, msg_limit(chat_id) - u.get("msg_count", 0))
             rem_photo = max(0, photo_limit(chat_id) - u.get("photo_count", 0))
             send(chat_id,
-                f"💳 *Подписка*\n\n"
+                f"Подписка\n\n"
                 f"Осталось сообщений: {rem_msg}\n"
                 f"Осталось фото: {rem_photo}\n\n"
-                f"Для приобретения подписки пиши: @staremenow",
-                markdown=True
+                f"Для приобретения подписки пиши: @staremenow"
             )
         return
 
@@ -710,7 +768,7 @@ def handle(update):
         bonus_msg = u.get("referral_bonus_msg", 0)
         bonus_photo = u.get("referral_bonus_photo", 0)
         send(chat_id,
-            f"🔗 Реферальная программа\n\n"
+            f"Реферальная программа\n\n"
             f"Приглашай друзей и получай бонусы!\n"
             f"За каждого друга: +{REFERRAL_BONUS_MSG} сообщений и +{REFERRAL_BONUS_PHOTO} фото\n\n"
             f"Твоя ссылка:\n{ref_link}\n\n"
@@ -720,87 +778,52 @@ def handle(update):
         )
         return
 
-    if text == "/export":
-        if not is_admin(user_id, username):
-            send(chat_id, "Нет доступа.")
-            return
-        try:
-            lines = [f"БАЗА ПОЛЬЗОВАТЕЛЕЙ — {len(user_data)} чел.\n"]
-            lines.append("=" * 40)
-            for i, (uid, u) in enumerate(user_data.items(), 1):
-                uname = f"@{u.get('username')}" if u.get("username") else "нет @"
-                uname_str = f"@{u.get('username')}" if u.get("username") else "-"
-                sub = "ДА" if u.get("has_sub") else "нет"
-                banned = " [ЗАБАНЕН]" if uid in BANNED_USERS else ""
-                refs = len(u.get("referrals", []))
-                lines.append(
-                    f"\n{i}. {u.get('name', '-')} {uname_str}{banned}\n"
-                    f"   ID: {uid}\n"
-                    f"   Подписка: {sub}\n"
-                    f"   Сообщений: {u.get('msg_count', 0)} / Фото: {u.get('photo_count', 0)}\n"
-                    f"   Рефералов: {refs} | Бонус msg: {u.get('referral_bonus_msg',0)} photo: {u.get('referral_bonus_photo',0)}\n"
-                    f"   Режим: {u.get('mode','default')} | Модель: {u.get('model','sonnet')}"
-                )
-                lines.append("-" * 40)
-            content = "\n".join(lines).encode("utf-8")
-            requests.post(
-                f"{BASE_URL}/sendDocument",
-                data={"chat_id": chat_id, "caption": f"База пользователей — {len(user_data)} чел."},
-                files={"document": ("users.txt", content)}
-            )
-        except Exception as e:
-            send(chat_id, f"Ошибка: {str(e)}")
-        return
-
     if text == "/status":
         rem_msg = max(0, msg_limit(chat_id) - u.get("msg_count", 0))
         rem_photo = max(0, photo_limit(chat_id) - u.get("photo_count", 0))
-        sub_status = "✅ Активна" if u.get("has_sub") else "❌ Нет"
+        sub_status = "Активна" if u.get("has_sub") else "Нет"
         model_name = CLAUDE_MODEL_NAMES.get(u.get("model", "sonnet"), "⚡ Sonnet 4.6")
         photo_model = PHOTO_MODEL_NAMES.get(u.get("photo_model"), "не выбрана")
         mode_map = {
-            "default": "🗣 Дефолт", "delo": "💼 По делу", "friend": "😊 Друг",
-            "test": "📝 Тесты", "english": "🇬🇧 Английский", "text_work": "✏️ Работа с текстом",
-            "photo": "🖼 Фотографии", "skill_gpt": "🎨 GPT Image", "skill_sales": "💰 AI Sales",
+            "default": "Дефолт", "delo": "По делу", "friend": "Друг",
+            "test": "Тесты", "english": "Английский", "text_work": "Работа с текстом",
+            "photo": "Фотографии", "skill_gpt": "GPT Image", "skill_sales": "AI Sales",
         }
         send(chat_id,
-            f"📊 *Твой статус*\n\n"
-            f"Режим: {mode_map.get(u.get('mode','default'), '🗣 Дефолт')}\n"
+            f"Твой статус\n\n"
+            f"Режим: {mode_map.get(u.get('mode','default'), 'Дефолт')}\n"
             f"Модель Claude: {model_name}\n"
             f"Модель фото: {photo_model}\n"
             f"Язык: {u.get('language', 'ru')}\n"
             f"Подписка: {sub_status}\n"
             f"Осталось сообщений: {rem_msg}\n"
             f"Осталось фото: {rem_photo}\n"
-            f"История: {len(u.get('history', []))} сообщений",
-            markdown=True
+            f"История: {len(u.get('history', []))} сообщений"
         )
         return
 
     # Выбор модели Claude
     if text == "⚡ Sonnet 4.6":
-        u["model"] = "sonnet"
-        save_db()
-        send(chat_id, "Модель: ⚡ Sonnet 4.6")
+        u["model"] = "sonnet"; save_db()
+        send(chat_id, "Модель: Sonnet 4.6")
         return
     if text == "🧠 Opus 4.7":
         if not u.get("has_sub"):
-            send(chat_id, "🔒 Opus 4.7 доступен только по подписке. Пиши @staremenow")
+            send(chat_id, "Opus 4.7 доступен только по подписке. Пиши @staremenow")
             return
-        u["model"] = "opus"
-        save_db()
-        send(chat_id, "Модель: 🧠 Opus 4.7 - максимальный интеллект.")
+        u["model"] = "opus"; save_db()
+        send(chat_id, "Модель: Opus 4.7 - максимальный интеллект.")
         return
 
     # Язык
     if text == "🇷🇺 Русский":
-        u["language"] = "ru"; save_db(); send(chat_id, "Язык: 🇷🇺 Русский"); return
+        u["language"] = "ru"; save_db(); send(chat_id, "Язык: Русский"); return
     if text == "🇬🇧 English":
-        u["language"] = "en"; save_db(); send(chat_id, "Language: 🇬🇧 English"); return
+        u["language"] = "en"; save_db(); send(chat_id, "Language: English"); return
     if text == "🌐 Авто":
-        u["language"] = "auto"; save_db(); send(chat_id, "Язык: 🌐 Авто"); return
+        u["language"] = "auto"; save_db(); send(chat_id, "Язык: Авто"); return
 
-    # Кнопки субрежима текста
+    # Субрежим текста
     if text in TEXT_SUBMODES and u.get("mode") == "text_work":
         submode = TEXT_SUBMODES[text]
         pending_text_mode[chat_id] = submode
@@ -816,32 +839,31 @@ def handle(update):
         model_name = PHOTO_MODEL_NAMES[PHOTO_MODEL_BUTTONS[text]]
         rem_photo = max(0, photo_limit(chat_id) - u.get("photo_count", 0))
         send(chat_id,
-            f"✅ Модель: *{model_name}*\n\n"
-            f"📸 *Как генерировать:*\n"
+            f"Модель: {model_name}\n\n"
+            f"Как генерировать:\n"
             f"1. Напиши промпт текстом\n"
             f"2. Или прикрепи фото с подписью-промптом (референс)\n"
-            f"3. Можно указать размер: 1:1, 3:4, 9:16, 16:9 и др.\n\n"
-            f"*Примеры:*\n"
-            f"- Девушка в красном платье, Париж, кинематографично\n"
-            f"- Логотип кофейни, минимализм, золото, размер 3:4\n"
+            f"3. Можно указать размер: 1:1, 3:4, 9:16, 16:9, 4:3, 2:3, 21:9\n\n"
+            f"Примеры:\n"
+            f"- Девушка в красном платье, Париж, кинематографично, размер 9:16\n"
+            f"- Логотип кофейни, минимализм, размер 1:1\n"
             f"- Замени фон на закат (с фото)\n\n"
             f"Осталось фото: {rem_photo}\n\n"
-            f"Скидывай промпт! 👇",
-            markdown=True
+            f"Скидывай промпт!"
         )
         return
 
-    # Кнопки режимов и скиллов
+    # Кнопки режимов
     BUTTONS_MAP = {
-        "🗣 Дефолт":           ("default",      "Режим: 🗣 Дефолт."),
-        "💼 По делу":          ("delo",         "Режим: 💼 По делу."),
-        "😊 Друг":             ("friend",       "Режим: 😊 Друг. Привет родной)"),
-        "📝 Тесты":            ("test",         "Скилл: 📝 Тесты. Скидывай вопрос!"),
-        "🇬🇧 Английский":      ("english",      "Скилл: 🇬🇧 Английский. Скидывай текст или вопрос!"),
-        "🎨 GPT Image промпты":("skill_gpt",    "Скилл: 🎨 GPT Image. Скидывай идею!"),
-        "💰 AI Visuals Sales": ("skill_sales",  "Скилл: 💰 AI Sales. Чем помочь?"),
-        "✏️ Работа с текстом": ("text_work",    None),
-        "🖼 Фотографии":       ("photo",        None),
+        "🗣 Дефолт":            ("default",     "Режим: Дефолт."),
+        "💼 По делу":           ("delo",        "Режим: По делу."),
+        "😊 Друг":              ("friend",      "Режим: Друг. Привет родной)"),
+        "📝 Тесты":             ("test",        "Скилл: Тесты. Скидывай вопрос!"),
+        "🇬🇧 Английский":       ("english",     "Скилл: Английский. Скидывай текст или вопрос!"),
+        "🎨 GPT Image промпты": ("skill_gpt",   "Скилл: GPT Image. Скидывай идею!"),
+        "💰 AI Visuals Sales":  ("skill_sales", "Скилл: AI Sales. Чем помочь?"),
+        "✏️ Работа с текстом":  ("text_work",   None),
+        "🖼 Фотографии":        ("photo",       None),
     }
 
     if text in BUTTONS_MAP:
@@ -849,7 +871,7 @@ def handle(update):
 
         if mode_key == "photo":
             if not can_photo(chat_id):
-                send(chat_id, f"⚠️ Закончились бесплатные фото. /sub или /ref")
+                send(chat_id, f"Закончились бесплатные фото. /sub или /ref")
                 return
             u["mode"] = "photo"
             u["history"] = []
@@ -858,12 +880,7 @@ def handle(update):
             else:
                 rem = max(0, photo_limit(chat_id) - u.get("photo_count", 0))
                 model_name = PHOTO_MODEL_NAMES.get(u["photo_model"], "")
-                send(chat_id,
-                    f"🖼 Режим фото. Модель: *{model_name}*\n"
-                    f"Осталось фото: {rem}\n\n"
-                    f"Скидывай промпт или фото с подписью!",
-                    markdown=True
-                )
+                send(chat_id, f"Режим фото. Модель: {model_name}\nОсталось фото: {rem}\n\nСкидывай промпт или фото с подписью!")
             save_db()
             return
 
@@ -872,19 +889,16 @@ def handle(update):
             u["history"] = []
             pending_text_mode.pop(chat_id, None)
             save_db()
-            send(chat_id,
-                "✏️ *Работа с текстом*\n\nВыбери действие:",
+            send(chat_id, "Работа с текстом. Выбери действие:",
                 [
                     ["🔄 Перефразировка", "✂️ Сокращение"],
                     ["📝 Удлинение", "📋 По пунктам"],
                     ["🤖 Проверка на ИИ"],
                     ["🗣 Дефолт"],
-                ],
-                markdown=True
+                ]
             )
             return
 
-        # Сброс модели фото при смене режима
         u["photo_model"] = None
         u["mode"] = mode_key
         u["history"] = []
@@ -894,20 +908,20 @@ def handle(update):
             send(chat_id, reply_text)
         return
 
-    # Если режим фото — обрабатываем текст как промпт
+    # Режим фото — текст как промпт
     if u.get("mode") == "photo":
         if not u.get("photo_model"):
             show_photo_model_menu(chat_id)
             return
         if not can_photo(chat_id):
-            send(chat_id, "⚠️ Закончились бесплатные фото. /sub или /ref")
+            send(chat_id, "Закончились бесплатные фото. /sub или /ref")
             return
         do_generate(chat_id, text)
         return
 
     # Проверка лимита сообщений
     if not can_msg(chat_id):
-        send(chat_id, "⚠️ Закончились бесплатные сообщения.\n\nОформи /sub или пригласи друга /ref.")
+        send(chat_id, "Закончились бесплатные сообщения.\n\nОформи /sub или пригласи друга /ref.")
         return
 
     # Основной запрос к Claude
@@ -920,8 +934,7 @@ def handle(update):
     try:
         model_id = CLAUDE_MODELS.get(u.get("model", "sonnet"), CLAUDE_MODELS["sonnet"])
         response = client.messages.create(
-            model=model_id,
-            max_tokens=2048,
+            model=model_id, max_tokens=2048,
             system=get_system(chat_id),
             messages=u["history"]
         )
@@ -947,7 +960,9 @@ def main():
             updates = r.json().get("result", [])
             for update in updates:
                 offset = update["update_id"] + 1
-                handle(update)
+                # Каждое сообщение обрабатывается в отдельном потоке
+                t = threading.Thread(target=handle, args=(update,), daemon=True)
+                t.start()
         except Exception as e:
             print(f"Ошибка: {e}")
             time.sleep(5)
