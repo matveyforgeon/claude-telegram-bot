@@ -41,7 +41,6 @@ PHOTO_MODELS = {
     "nbpro":  {"name": "🍌 Nano Banana (качество)", "api": "google", "model": "gemini-2.5-flash-image", "style": "quality"},
     "gpt2":   {"name": "🖼 GPT Image 2.0",          "api": "openai", "model": "gpt-image-2",           "style": None},
     "gpt15":  {"name": "🖼 GPT Image 1.5",          "api": "openai", "model": "gpt-image-1.5",         "style": None},
-    "grok":   {"name": "⚡ Grok Imagine",           "api": "xai",    "model": "grok-2-image",          "style": None},
 }
 PHOTO_MODEL_NAMES = {k: v["name"] for k, v in PHOTO_MODELS.items()}
 PHOTO_MODEL_BUTTONS = {
@@ -49,7 +48,6 @@ PHOTO_MODEL_BUTTONS = {
     "🍌 Nano Banana (качество)": "nbpro",
     "🖼 GPT Image 2.0":          "gpt2",
     "🖼 GPT Image 1.5":          "gpt15",
-    "⚡ Grok Imagine":           "grok",
 }
 
 SIZE_MAP = {
@@ -257,11 +255,17 @@ def generate_openai(prompt, model_id, px_size, ref_b64=None):
         print(f"[OPENAI EXCEPTION] {e}")
     return None
 
-def generate_xai(prompt, ref_b64=None):
+def generate_xai(prompt, aspect_ratio="1:1", ref_b64=None):
     try:
+        payload = {
+            "model": "grok-2-image",
+            "prompt": prompt,
+            "n": 1,
+            "aspect_ratio": aspect_ratio,
+        }
         r = requests.post("https://api.x.ai/v1/images/generations",
             headers={"Authorization": f"Bearer {XAI_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "grok-2-image", "prompt": prompt, "n": 1}, timeout=120)
+            json=payload, timeout=120)
         data = r.json()
         if r.status_code == 200:
             items = data.get("data", [])
@@ -279,7 +283,7 @@ def generate_photo(prompt, model_key, aspect, px_size, ref_b64=None):
     api, model_id, style = info["api"], info["model"], info.get("style")
     if api == "google": return generate_google(prompt, model_id, aspect, ref_b64, style)
     if api == "openai": return generate_openai(prompt, model_id, px_size, ref_b64)
-    if api == "xai":    return generate_xai(prompt, ref_b64)
+    if api == "xai":    return generate_xai(prompt, aspect, ref_b64)
     return None
 
 def send_generated(chat_id, result, remaining):
@@ -317,13 +321,11 @@ def show_photo_model_menu(chat_id):
         "🖼 Выбери модель для генерации:\n\n"
         "🍌 Nano Banana (быстрый) - быстро, хорошее качество\n"
         "🍌 Nano Banana (качество) - детальная проработка\n"
-        "🖼 GPT Image 2.0 / 1.5 - от OpenAI\n"
-        "⚡ Grok Imagine - от xAI\n\n"
+        "🖼 GPT Image 2.0 / 1.5 - от OpenAI\n\n"
         "Поддерживаемые размеры: 1:1, 3:4, 9:16, 16:9, 4:3, 2:3, 4:5, 21:9",
         [
             ["🍌 Nano Banana (быстрый)", "🍌 Nano Banana (качество)"],
             ["🖼 GPT Image 2.0", "🖼 GPT Image 1.5"],
-            ["⚡ Grok Imagine"],
             ["⬅️ Назад"],
         ]
     )
@@ -343,6 +345,7 @@ def show_skills_menu(chat_id):
             ["🖼 Фотографии"],
             ["🎨 GPT Image промпты"],
             ["💰 AI Visuals Sales"],
+            ["🏠 Главное меню"],
         ]
     )
 
@@ -478,6 +481,38 @@ def handle(update):
         return
 
     # Кнопка Назад
+    if text == "🏠 Главное меню":
+        u["mode"] = "default"; u["history"] = []; u["photo_model"] = None
+        pending_text_mode.pop(chat_id, None); save_db()
+        send(chat_id,
+            "🤖 AI-ассистент\n\n"
+            "🗣 Режимы (/mode):\n"
+            "🗣 Дефолт - нейтральный ИИ\n"
+            "💼 По делу - строго и кратко\n"
+            "😊 Друг - по-дружески\n\n"
+            "🛠 Скиллы (/skills):\n"
+            "📝 Тесты - кратко и точно\n"
+            "🇬🇧 Английский - изучение языка\n"
+            "✏️ Работа с текстом - редактирование\n"
+            "🖼 Фотографии - генерация AI-фото 2K\n"
+            "🎨 GPT Image - промпты\n"
+            "💰 AI Sales - продажи\n\n"
+            "🧠 Модели Claude (/model):\n"
+            "⚡ Sonnet 4.6 - быстрый (по умолчанию)\n"
+            "🧠 Opus 4.7 - умнее (только подписка)\n\n"
+            f"🎁 Бесплатно: {FREE_MSG_LIMIT} сообщений, {FREE_PHOTO_LIMIT} фото\n"
+            f"🔗 За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото",
+            [
+                ["📝 Тесты", "🇬🇧 Английский"],
+                ["✏️ Работа с текстом"],
+                ["🖼 Фотографии"],
+                ["🎨 GPT Image промпты"],
+                ["💰 AI Visuals Sales"],
+                ["🏠 Главное меню"],
+            ]
+        )
+        return
+
     if text == "⬅️ Назад":
         u["mode"] = "default"; u["history"] = []; u["photo_model"] = None
         pending_text_mode.pop(chat_id, None); save_db()
