@@ -75,22 +75,22 @@ PHOTO_MODEL_BUTTONS = {
 
 # Соотношения сторон
 SIZE_MAP = {
-    "1:1":  "2048x2048",
-    "3:4":  "1536x2048",
-    "4:3":  "2048x1536",
-    "9:16": "1152x2048",
-    "16:9": "2048x1152",
-    "2:3":  "1365x2048",
-    "3:2":  "2048x1365",
-    "1:2":  "1024x2048",
-    "2:1":  "2048x1024",
+    "1:1":  ("1024x1024", "square 1:1 aspect ratio"),
+    "3:4":  ("1024x1536", "portrait 3:4 aspect ratio, vertical orientation"),
+    "4:3":  ("1536x1024", "landscape 4:3 aspect ratio, horizontal orientation"),
+    "9:16": ("1024x1536", "portrait 9:16 aspect ratio, vertical phone wallpaper"),
+    "16:9": ("1536x1024", "landscape 16:9 aspect ratio, widescreen"),
+    "2:3":  ("1024x1536", "portrait 2:3 aspect ratio, vertical"),
+    "3:2":  ("1536x1024", "landscape 3:2 aspect ratio, horizontal"),
+    "1:2":  ("1024x1536", "tall portrait 1:2 aspect ratio, vertical"),
+    "2:1":  ("1536x1024", "wide landscape 2:1 aspect ratio, horizontal"),
 }
 
 def fix_dashes(text):
     return text.replace(" -- ", " - ").replace("--", "-").replace(" — ", " - ").replace("—", "-")
 
 def extract_size(prompt):
-    """Ищет размер в промпте и возвращает (размер, промпт без упоминания размера)"""
+    """Ищет размер в промпте, возвращает (api_size, hint, промпт без упоминания размера)"""
     patterns = [
         r'разрешение\s+(\d+:\d+)',
         r'размер\s+фото\s+(\d+:\d+)',
@@ -105,11 +105,11 @@ def extract_size(prompt):
         if m:
             ratio = m.group(1)
             if ratio in SIZE_MAP:
+                api_size, hint = SIZE_MAP[ratio]
                 clean = re.sub(pat, '', prompt, flags=re.IGNORECASE).strip()
                 clean = re.sub(r'\s+', ' ', clean)
-                return SIZE_MAP[ratio], clean
-    return "1024x1024", prompt
-
+                return api_size, hint, clean
+    return "1024x1024", None, prompt
 # ===== БАЗА ПОЛЬЗОВАТЕЛЕЙ =====
 def load_db():
     try:
@@ -341,11 +341,15 @@ def send_generated_photo(chat_id, result, remaining):
 
 def do_generate(chat_id, prompt, ref_b64=None):
     u = get_user(chat_id)
-    size, clean_prompt = extract_size(prompt)
+    size, hint, clean_prompt = extract_size(prompt)
+    # Добавляем подсказку размера прямо в промпт для всех моделей
+    final_prompt = clean_prompt or prompt
+    if hint:
+        final_prompt = f"{final_prompt}, {hint}"
     model_name = PHOTO_MODEL_NAMES.get(u["photo_model"], "GPT Image 2.0")
     send(chat_id, f"⏳ Генерирую...\nМодель: {model_name}\nРазмер: {size}")
     send_typing(chat_id)
-    result = generate_photo(clean_prompt or prompt, ref_b64, u["photo_model"], size)
+    result = generate_photo(final_prompt, ref_b64, u["photo_model"], size)
     if result:
         u["photo_count"] = u.get("photo_count", 0) + 1
         save_db()
