@@ -298,7 +298,15 @@ def download_photo_b64(file_id):
 # ===== ГЕНЕРАЦИЯ ФОТО =====
 def generate_photo(prompt, ref_b64=None, photo_model_key="gpt2", size="1024x1024"):
     model_id = PHOTO_MODELS.get(photo_model_key, PHOTO_MODELS["gpt2"])
-    payload = {"model": model_id, "prompt": prompt, "n": 1, "size": size}
+    # Добавляем размер в промпт напрямую для надёжности
+    payload = {
+        "model": model_id,
+        "prompt": prompt,
+        "n": 1,
+        "size": size,
+        "width": int(size.split("x")[0]),
+        "height": int(size.split("x")[1]),
+    }
     if ref_b64:
         payload["image"] = f"data:image/jpeg;base64,{ref_b64}"
     try:
@@ -396,16 +404,15 @@ def handle_admin(chat_id, text, user_id, username):
 
     if cmd == "/admin":
         send(chat_id,
-            "👑 *Админ-панель*\n\n"
+            "👑 Админ-панель\n\n"
             f"Всего пользователей: {len(user_data)}\n\n"
             "Команды:\n"
             "/users - список пользователей\n"
             "/export - скачать базу файлом\n"
             "/ban [id] - забанить\n"
             "/unban [id] - разбанить\n"
-            "/give_sub [id] - выдать подписку\n"
-            "/revoke_sub [id] - забрать подписку",
-            markdown=True
+            "/givesub [id] - выдать подписку\n"
+            "/revokesub [id] - забрать подписку"
         )
     elif cmd == "/users":
         if not user_data:
@@ -429,14 +436,14 @@ def handle_admin(chat_id, text, user_id, username):
             BANNED_USERS.discard(int(parts[1]))
             send(chat_id, f"✅ {parts[1]} разбанен.")
         except: send(chat_id, "Неверный ID.")
-    elif cmd == "/give_sub" and len(parts) > 1:
+    elif cmd == "/givesub" and len(parts) > 1:
         try:
             tid = int(parts[1])
             get_user(tid)["has_sub"] = True
             save_db()
             send(chat_id, f"Подписка выдана {parts[1]}.")
         except: send(chat_id, "Неверный ID.")
-    elif cmd == "/revoke_sub" and len(parts) > 1:
+    elif cmd == "/revokesub" and len(parts) > 1:
         try:
             tid = int(parts[1])
             get_user(tid)["has_sub"] = False
@@ -494,7 +501,7 @@ def handle(update):
         except: pass
 
     # Админ команды
-    if text.startswith(("/admin", "/users", "/ban", "/unban", "/give_sub", "/revoke_sub")):
+    if text.startswith(("/admin", "/users", "/ban", "/unban", "/givesub", "/revokesub")):
         handle_admin(chat_id, text, user_id, username)
         return
 
