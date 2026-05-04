@@ -412,7 +412,18 @@ def do_generate(chat_id, prompt, ref_b64=None):
         remaining = max(0, photo_limit(chat_id) - u["photo_count"])
         send_generated_photo(chat_id, result, remaining)
     else:
-        send(chat_id, "Не удалось сгенерировать фото. Попробуй другой промпт или модель.")
+        # Показываем детальную ошибку для диагностики
+        model_info = PHOTO_MODELS.get(model_key, {})
+        api = model_info.get("api", "?")
+        model_id = model_info.get("model", "?")
+        send(chat_id,
+            f"Не удалось сгенерировать фото.\n\n"
+            f"Модель: {model_name}\n"
+            f"API: {api}\n"
+            f"Model ID: {model_id}\n"
+            f"Размер: {px_size}\n\n"
+            f"Проверь логи Railway для деталей ошибки."
+        )
 
 def show_photo_model_menu(chat_id):
     send(chat_id,
@@ -422,6 +433,7 @@ def show_photo_model_menu(chat_id):
             ["🍌 Nano Banana Pro", "🍌 Nano Banana 2"],
             ["🖼 GPT Image 2.0", "🖼 GPT Image 1.5"],
             ["⚡ Grok Imagine"],
+            ["⬅️ Назад"],
         ]
     )
 
@@ -802,6 +814,25 @@ def handle(update):
         )
         return
 
+    # Кнопка Назад — возвращает в меню скиллов
+    if text == "⬅️ Назад":
+        u["mode"] = "default"
+        u["history"] = []
+        u["photo_model"] = None
+        pending_text_mode.pop(chat_id, None)
+        save_db()
+        send(chat_id, "Специальные навыки:",
+            [
+                ["📝 Тесты", "🇬🇧 Английский"],
+                ["✏️ Работа с текстом"],
+                ["🖼 Фотографии"],
+                ["🎨 GPT Image промпты"],
+                ["💰 AI Visuals Sales"],
+                ["🗣 Дефолт"],
+            ]
+        )
+        return
+
     # Выбор модели Claude
     if text == "⚡ Sonnet 4.6":
         u["model"] = "sonnet"; save_db()
@@ -849,7 +880,8 @@ def handle(update):
             f"- Логотип кофейни, минимализм, размер 1:1\n"
             f"- Замени фон на закат (с фото)\n\n"
             f"Осталось фото: {rem_photo}\n\n"
-            f"Скидывай промпт!"
+            f"Скидывай промпт!",
+            [["⬅️ Назад"]]
         )
         return
 
@@ -894,7 +926,7 @@ def handle(update):
                     ["🔄 Перефразировка", "✂️ Сокращение"],
                     ["📝 Удлинение", "📋 По пунктам"],
                     ["🤖 Проверка на ИИ"],
-                    ["🗣 Дефолт"],
+                    ["⬅️ Назад"],
                 ]
             )
             return
