@@ -378,7 +378,6 @@ def set_commands():
         {"command": "sub", "description": "Подписка"},
         {"command": "ref", "description": "Реферальная ссылка"},
         {"command": "status", "description": "Мой статус"},
-        {"command": "export", "description": "Скачать базу пользователей (админ)"},
         {"command": "help", "description": "Помощь"},
     ]
     requests.post(f"{BASE_URL}/setMyCommands", json={"commands": cmds})
@@ -431,14 +430,14 @@ def handle_admin(chat_id, text, user_id, username):
             tid = int(parts[1])
             get_user(tid)["has_sub"] = True
             save_db()
-            send(chat_id, f"✅ Подписка выдана {parts[1]}.")
+            send(chat_id, f"Подписка выдана {parts[1]}.")
         except: send(chat_id, "Неверный ID.")
     elif cmd == "/revoke_sub" and len(parts) > 1:
         try:
             tid = int(parts[1])
             get_user(tid)["has_sub"] = False
             save_db()
-            send(chat_id, f"✅ Подписка отозвана у {parts[1]}.")
+            send(chat_id, f"Подписка отозвана у {parts[1]}.")
         except: send(chat_id, "Неверный ID.")
 
 # ===== ГЛАВНЫЙ ОБРАБОТЧИК =====
@@ -715,12 +714,29 @@ def handle(update):
             send(chat_id, "Нет доступа.")
             return
         try:
-            with open(DB_FILE, "rb") as f:
-                requests.post(
-                    f"{BASE_URL}/sendDocument",
-                    data={"chat_id": chat_id, "caption": f"База пользователей — {len(user_data)} чел."},
-                    files={"document": ("users_db.json", f)}
+            lines = [f"БАЗА ПОЛЬЗОВАТЕЛЕЙ — {len(user_data)} чел.\n"]
+            lines.append("=" * 40)
+            for i, (uid, u) in enumerate(user_data.items(), 1):
+                uname = f"@{u.get('username')}" if u.get("username") else "нет @"
+                uname_str = f"@{u.get('username')}" if u.get("username") else "-"
+                sub = "ДА" if u.get("has_sub") else "нет"
+                banned = " [ЗАБАНЕН]" if uid in BANNED_USERS else ""
+                refs = len(u.get("referrals", []))
+                lines.append(
+                    f"\n{i}. {u.get('name', '-')} {uname_str}{banned}\n"
+                    f"   ID: {uid}\n"
+                    f"   Подписка: {sub}\n"
+                    f"   Сообщений: {u.get('msg_count', 0)} / Фото: {u.get('photo_count', 0)}\n"
+                    f"   Рефералов: {refs} | Бонус msg: {u.get('referral_bonus_msg',0)} photo: {u.get('referral_bonus_photo',0)}\n"
+                    f"   Режим: {u.get('mode','default')} | Модель: {u.get('model','sonnet')}"
                 )
+                lines.append("-" * 40)
+            content = "\n".join(lines).encode("utf-8")
+            requests.post(
+                f"{BASE_URL}/sendDocument",
+                data={"chat_id": chat_id, "caption": f"База пользователей — {len(user_data)} чел."},
+                files={"document": ("users.txt", content)}
+            )
         except Exception as e:
             send(chat_id, f"Ошибка: {str(e)}")
         return
