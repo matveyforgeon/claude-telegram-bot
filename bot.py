@@ -254,8 +254,6 @@ def generate_openai(prompt, model_id, px_size, ref_b64=None):
         print(f"[OPENAI EXCEPTION] {e}")
     return None
 
-
-
 def generate_photo(prompt, model_key, aspect, px_size, ref_b64=None):
     info = PHOTO_MODELS.get(model_key)
     if not info: return None
