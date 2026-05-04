@@ -12,7 +12,6 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 DB_FILE = "/data/users_db.json"
 
 BANNED_USERS = set(
@@ -263,7 +262,6 @@ def generate_photo(prompt, model_key, aspect, px_size, ref_b64=None):
     api, model_id, style = info["api"], info["model"], info.get("style")
     if api == "google": return generate_google(prompt, model_id, aspect, ref_b64, style)
     if api == "openai": return generate_openai(prompt, model_id, px_size, ref_b64)
-    if api == "xai":    return generate_xai(prompt, aspect, ref_b64)
     return None
 
 def send_generated(chat_id, result, remaining):
