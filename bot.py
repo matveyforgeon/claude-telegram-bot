@@ -476,16 +476,10 @@ def handle(update):
             "🧠 Модели Claude (/model):\n"
             "⚡ Sonnet 4.6 - быстрый (по умолчанию)\n"
             "🧠 Opus 4.7 - умнее (только подписка)\n\n"
+            "💳 Подписка (/sub) - снимает все лимиты\n"
+            "🔗 Рефералы (/ref) - бонусы за приглашённых друзей\n\n"
             f"🎁 Бесплатно: {FREE_MSG_LIMIT} сообщений, {FREE_PHOTO_LIMIT} фото\n"
-            f"🔗 За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото",
-            [
-                ["📝 Тесты", "🇬🇧 Английский"],
-                ["✏️ Работа с текстом"],
-                ["🖼 Фотографии"],
-                ["🎨 GPT Image промпты"],
-                ["💰 AI Visuals Sales"],
-                ["🏠 Главное меню"],
-            ]
+            f"🔗 За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото"
         )
         return
 
@@ -595,15 +589,10 @@ def handle(update):
             "🧠 Модели Claude (/model):\n"
             "⚡ Sonnet 4.6 - быстрый (по умолчанию)\n"
             "🧠 Opus 4.7 - умнее (только подписка)\n\n"
+            "💳 Подписка (/sub) - снимает все лимиты\n"
+            "🔗 Рефералы (/ref) - бонусы за приглашённых друзей\n\n"
             f"🎁 Бесплатно: {FREE_MSG_LIMIT} сообщений, {FREE_PHOTO_LIMIT} фото\n"
-            f"🔗 За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото",
-            [
-                ["📝 Тесты", "🇬🇧 Английский"],
-                ["✏️ Работа с текстом"],
-                ["🖼 Фотографии"],
-                ["🎨 GPT Image промпты"],
-                ["💰 AI Visuals Sales"],
-            ]
+            f"🔗 За реферала: +{REFERRAL_BONUS_MSG} сообщений, +{REFERRAL_BONUS_PHOTO} фото"
         )
         return
 
